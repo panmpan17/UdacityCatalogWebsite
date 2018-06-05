@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<title>Post Menu</title>
+</head>
+<body>
+	<a href="/login"><button>Login</button></a>
+	<h3>Catalog</h3>
+	<ul>
+		{% for catalog in catalogs %}
+			<!-- <li>{{ catalogs[catalog] }}</li> -->
+			<li>
+				<a href="{{ url_for('catalog_posts', catalog=catalog) }}">
+					{{ catalogs[catalog] }}
+				</a>
+			</li>
+		{% endfor %}
+
+		{{posts}}
+	</ul>
+</body>
+</html>
