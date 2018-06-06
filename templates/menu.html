@@ -1,23 +1,35 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-	<meta charset="UTF-8">
-	<title>Post Menu</title>
-</head>
-<body>
-	<a href="/login"><button>Login</button></a>
-	<h3>Catalog</h3>
-	<ul>
-		{% for catalog in catalogs %}
-			<!-- <li>{{ catalogs[catalog] }}</li> -->
-			<li>
-				<a href="{{ url_for('catalog_posts', catalog=catalog) }}">
-					{{ catalogs[catalog] }}
-				</a>
-			</li>
-		{% endfor %}
+{% extends "base.html" %}
+{% block title %}Catalog App{% endblock %}
+{% block body %}
+	<div id="container" class="flex">
+		<aside>
+			<h3>Catagories</h3>
+			<ul>
+				{% for catalog in catalogs %}
+				<li>
+					<a class="orange" href="{{ url_for('catalog_posts', catalog=catalog) }}">
+						{{ catalogs[catalog] }}
+					</a>
+				</li>
+				{% endfor %}
+			</ul>
+		</aside>
+		<section>
+			{% if user %}
+			<a class="orange" href="/new">Add post</a>
+			{% endif %}
 
-		{{posts}}
-	</ul>
-</body>
-</html>
+			<h3>Latest Items</h3>
+			<ul>
+				{% for post in posts %}
+				<li>
+					<a class="orange" href="{{ url_for('post_detail', post_id=post.id) }}">
+						<span>{{ post.title }}</span>
+					</a>
+					<span style="color:gray">({{ catalogs[post.catalog] }})</span>
+				</li>
+				{% endfor %}
+			</ul>
+		</section>
+	</div>
+{% endblock %}

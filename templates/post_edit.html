@@ -1,1 +1,23 @@
-
+{% extends "base.html" %}
+{% block title %}Catalog App - Edit{% endblock %}
+{% block body %}
+	<div id="container">
+		<section>
+			<h3>Edit Post</h3>
+			<form method="post">
+				Title: <br>
+				<input name="title" type="text" value="{{post.title}}"><br>
+				Description: <br>
+				<input name="body" type="text" value="{{post.body}}"><br>
+				<select name="catalog">
+					{% for catalog in catalogs %}
+					<option value="{{catalog}}" {% if catalog==post.catalog %}selected{% endif %}>
+						{{catalogs[catalog]}}
+					</option>
+					{% endfor %}
+				</select>
+				<input type="submit" value="Update">
+			</form>
+		</section>
+	</div>
+{% endblock %}

@@ -1,0 +1,107 @@
+body {
+	margin: 0;
+	background: lightgray;
+}
+
+header {
+	width: 100%;
+	margin: 0;
+	padding-bottom: 5px;
+	background: #454c56;
+}
+
+header #logo {
+	font-family: sans-serif;
+	font-size: 40px;
+	font-weight: 900;
+	margin: 5px 20px;
+	float: left;
+	color: white;
+	text-decoration: none;
+}
+
+header #account {
+	font-family: monospace;
+	background: coral;
+	text-decoration: none;
+	margin: 20px 10px;
+	padding: 5px 15px;
+	color: white;
+	float: right;
+}
+
+header hr {
+	clear: both;
+	margin: 1px;
+	opacity: 0;
+}
+
+#container {
+	width: 90%;
+	margin-top: 20px;
+	margin-left: 5%;
+	background: white;
+}
+
+#container.flex {
+	display: flex
+}
+
+
+#container h3 {
+	font-family: sans-serif;
+	margin: 10px 0;
+	font-size: 28px;
+}
+
+#container ul {
+	padding: 0;
+	margin: 5px 0px;
+}
+
+#container ul li {
+	margin: 8px 0;
+	list-style: none;
+}
+
+#container aside {
+	width: 30%;
+	padding: 30px;
+}
+
+#container section {
+	width: 70%;
+	padding: 30px;
+}
+
+article {
+	padding: 10px;
+}
+
+a.orange {
+	color: coral;
+	text-decoration: none;
+}
+
+a.orange:visited {
+	color: coral;
+}
+
+input {
+	border: 1px solid lightgray;
+	font-size: 16px;
+	margin: 5px;
+}
+
+select {
+	border: 1px solid lightgray;
+	font-size: 16px;
+	margin: 5px;
+}
+
+@media screen and (min-width: 810px) {
+	#container {
+		width: 800px;
+		margin-left: calc(50% - 400px);
+	}
+}

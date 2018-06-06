@@ -1,5 +1,6 @@
-from sqlalchemy import Column, ForeignKey, Integer, String, Text
+from sqlalchemy import Column, ForeignKey, Integer, String, Text, DateTime
 from sqlalchemy.ext.declarative import declarative_base
+from datetime import datetime
 
 
 Base = declarative_base()
@@ -29,11 +30,17 @@ class Post(Base):
     body = Column(Text, nullable=True)
     catalog = Column(Integer, nullable=True)
     author = Column(Integer, ForeignKey("user.id"))
+    create_at = Column(DateTime, default=datetime.utcnow, autoincrement=True)
 
     @property
     def jsonlize(self):
         return {
             "id": self.id,
+            "title": self.title,
+            "body": self.body,
+            "catalog": self.catalog,
+            "author": self.author,
+            "create_at": self.create_at.strftime("%Y/ %m/ %d %H:%M"),
         }
 
 

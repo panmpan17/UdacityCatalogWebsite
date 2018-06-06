@@ -1,15 +1,14 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-	<meta charset="UTF-8">
-	<title>Login</title>
-</head>
-<body>
-	<a href="/"><button>back</button></a>
+{% extends "base.html" %}
+{% block title %}Login{% endblock %}
+{% block body %}
 	<h3>Login</h3>
 	<form method="post">
 		<input name="email" type="text" placeholder="email"><br>
+		<input name="state" value="{{STATE}}" hidden>
 		<input type="submit" value="Login">
 	</form>
-</body>
-</html>
+	<span style="color: red">
+		{% if error=="missing" %}Missing field "email"{% endif %}
+		{% if error=="wrong" %}Field "email" not found{% endif %}
+	</span>
+{% endblock %}

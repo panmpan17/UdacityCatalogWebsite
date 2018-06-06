@@ -1,16 +1,19 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-	<meta charset="UTF-8">
-	<title>New Post</title>
-</head>
-<body>
-	<a href="/"><button>Back</button></a>
-	<h2>New Post</h2>
-	<form method="post">
-		<input name="title" type="text"><br>
-		<input name="body" type="text"><br>
-		<input type="submit" value="Create">
-	</form>
-</body>
-</html>
+{% extends "base.html" %}
+{% block title %}New{% endblock %}
+{% block body %}
+	<div id="container">
+		<section>
+			<h3>New Post</h3>
+			<form method="post">
+				<input name="title" type="text" placeholder="Title"><br>
+				<input name="body" cols="30" rows="10" placeholder="description ..."><br>
+				<select name="catalog">
+					{% for catalog in catalogs %}
+					<option value="{{ catalog }}">{{ catalogs[catalog] }}</option>
+					{% endfor %}
+				</select>
+				<input type="submit" value="Create">
+			</form>
+		</section>
+	</div>
+{% endblock %}
