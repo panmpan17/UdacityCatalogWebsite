@@ -1,20 +1,19 @@
 from flask import Flask, request, render_template, jsonify, redirect, url_for
+from flask import make_response
 from flask import session as login_session
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.orm.exc import NoResultFound
 from model import Base, Post, User
 
-DEFAULT_USERS = [
-    {
-        "email": "panmpan@gmail.com",
-        "name": "Michael",
-    },
-    {
-        "email": "test@user.com",
-        "name": "Test",
-    },
-]
+from oauth2client.client import flow_from_clientsecrets
+from oauth2client.client import FlowExchangeError
+
+import string
+import random
+import json
+import requests
+
 
 CATALOGS = {
     1: "Rock",
@@ -25,6 +24,12 @@ CATALOGS = {
 app = Flask(__name__)
 app.secret_key = b'_5#y2L"F4Q8z\n\xec]/'
 
+GOOGLE_CLIENT_ID = json.loads(open("client_secret.json",
+                                   "r").read())["web"]["client_id"]
+FB_APP_ID = json.loads(open("fb_client_secret.json").read())["web"]["app_id"]
+FB_APP_SECRET = json.loads(open("fb_client_secret.json").read())[
+    "web"]["app_secret"]
+
 engine = create_engine("sqlite:///database.db", connect_args={
     "check_same_thread": False})
 Base.metadata.create_all(engine)
@@ -34,23 +39,19 @@ DBSession = sessionmaker(bind=engine)
 session = DBSession()
 
 
-def create_user(user):
-    new_user = User(email=user["email"], name=user["name"])
-    session.add(new_user)
+def createUser(userinfo):
+    newUser = User(name=userinfo['name'], email=userinfo['email'])
+    session.add(newUser)
     session.commit()
-    return find_user_email(user["email"]).id
+    user = session.query(User).filter_by(email=userinfo['email']).one()
+    return user.id
 
 
 def find_user_email(email):
-    return session.query(User).filter_by(email=email).one()
-
-
-def create_default_users():
-    for user in DEFAULT_USERS:
-        try:
-            find_user_email(user["email"])
-        except NoResultFound:
-            create_user(user)
+    try:
+        return session.query(User).filter_by(email=email).one().id
+    except NoResultFound:
+        return False
 
 
 def create_post(post, user_id):
@@ -61,10 +62,17 @@ def create_post(post, user_id):
     return session.query(Post).order_by(Post.create_at.desc()).first()
 
 
+def json_response(text, code):
+    response = make_response(json.dumps(text), code)
+    response.headers["Content-Type"] = "application/json"
+    return response
+
+
 @app.route("/", methods=["GET"])
 def index():
+    # login_session.clear()
     try:
-        user_id = login_session["userid"]
+        user_id = login_session["user_id"]
     except KeyError:
         user_id = None
 
@@ -74,45 +82,156 @@ def index():
                            posts=posts)
 
 
-@app.route("/login", methods=["GET", "POST"])
+@app.route("/login", methods=["GET"])
 def login():
-    if request.method == "GET":
-        return render_template("login.html")
-    else:
-        if not request.form["email"]:
-            return render_template("login.html", error="missing")
-
-        try:
-            user = find_user_email(request.form["email"])
-        except NoResultFound:
-            return render_template("login.html", error="wrong")
-
-        login_session["userid"] = user.id
-        return redirect("/")
+    state = "".join(random.choice(string.ascii_uppercase + string.digits)
+                    for i in range(32))
+    login_session["state"] = state
+    return render_template("login.html", STATE=state)
 
 
 @app.route("/logout", methods=["GET"])
 def logout():
-    login_session.pop("userid", None)
+    if login_session["login_as"] == "google":
+        gdisconnect()
+    else:
+        fbdisconnect()
+
+    login_session.clear()
     return redirect("/")
+
+
+@app.route("/gconnect", methods=["POST"])
+def gconnect():
+    if request.args.get("state") != login_session["state"]:
+        return json_response("Invalid state parameter.", 401)
+    del login_session["state"]
+
+    code = request.data
+
+    try:
+        # Upgrade the authorization code
+        oauth_flow = flow_from_clientsecrets("client_secret.json", scope="")
+        oauth_flow.redirect_uri = "postmessage"
+        credentials = oauth_flow.step2_exchange(code)
+    except FlowExchangeError:
+        return json_response("Failed to upgrade the authorization code.", 401)
+
+    # Check token is valid
+    access_token = credentials.access_token
+    r = requests.get("https://www.googleapis.com/oauth2/v1/tokeninfo?"
+                     "access_token=%s" % access_token).json()
+
+    # Abort if there is error
+    if r.get("error") is not None:
+        return json_response(r.get("error"), 500)
+
+    # Check token is used for right user
+    gplus_id = credentials.id_token["sub"]
+    if r["user_id"] != gplus_id:
+        return json_response("Token's user ID doesn't match given user ID.",
+                             401)
+
+    # Check token is valid for this app.
+    if r["issued_to"] != GOOGLE_CLIENT_ID:
+        return json_response("Token's client ID does not match app's.", 401)
+
+    stored_access_token = login_session.get("access_token")
+    stored_gplus_id = login_session.get("gplus_id")
+    if stored_access_token is not None and gplus_id == stored_gplus_id:
+        return json_response(json.dumps("Current user is already connected."),
+                             200)
+
+    login_session["access_token"] = credentials.access_token
+    login_session["gplus_id"] = gplus_id
+
+    userinfo_url = "https://www.googleapis.com/oauth2/v1/userinfo"
+    params = {"access_token": credentials.access_token, "alt": "json"}
+    answer = requests.get(userinfo_url, params=params)
+
+    data = answer.json()
+
+    login_session["name"] = data["name"]
+    login_session["email"] = data["email"]
+    login_session["login_as"] = "google"
+
+    user_id = find_user_email(data["email"])
+    if not user_id:
+        user_id = createUser(login_session)
+    login_session['user_id'] = user_id
+
+    return json_response("Success", 200)
+
+
+def gdisconnect():
+    access_token = login_session.get("access_token")
+    if access_token is None:
+        return False
+
+    r = requests.get("https://accounts.google.com/o/oauth2/revoke?token=%s" %
+                     login_session["access_token"])
+
+    if r.status_code == 200:
+        return True
+    else:
+        return False
+
+
+@app.route("/fbconnect", methods=["POST"])
+def fbconnect():
+    if request.args.get("state") != login_session["state"]:
+        response = make_response(json.dumps("Invalid state parameter."), 401)
+        response.headers["Content-Type"] = "application/json"
+        return response
+    access_token = request.data
+
+    r = requests.get("https://graph.facebook.com/oauth/access_token?"
+                     "grant_type=fb_exchange_token&client_id=%s&client_secret"
+                     "=%s&fb_exchange_token=%s" % (FB_APP_ID, FB_APP_SECRET,
+                                                   access_token))
+    token = r.json()["access_token"]
+
+    r = requests.get("https://graph.facebook.com/v2.8/me?access_token=%s"
+                     "&fields=name,id,email" % token)
+    data = r.json()
+    login_session["login_as"] = "facebook"
+    login_session["name"] = data["name"]
+    login_session["email"] = data["email"]
+    login_session["facebook_id"] = data["id"]
+    login_session["access_token"] = token
+
+    user_id = find_user_email(data["email"])
+    if not user_id:
+        user_id = createUser(login_session)
+    login_session["user_id"] = user_id
+
+    return json_response("Success", 200)
+
+
+def fbdisconnect():
+    facebook_id = login_session["facebook_id"]
+    access_token = login_session["access_token"]
+    requests.get("https://graph.facebook.com/%s/permissions?access_token=%s" %
+                 (facebook_id, access_token))
+    return True
 
 
 @app.route("/new", methods=["GET", "POST"])
 def new_post():
     if request.method == "GET":
         try:
-            user_id = login_session["userid"]
+            user_id = login_session["user_id"]
             return render_template("new_post.html", user=user_id,
                                    catalogs=CATALOGS)
         except KeyError:
             return render_template("login_required.html")
     else:
         if ((not request.form["title"]) or (not request.form["body"]) or
-           (not request.form["catalog"])):
+                (not request.form["catalog"])):
             return render_template("new_post.html", catalogs=CATALOGS,
                                    error="missing")
 
-        post = create_post(request.form, login_session["userid"])
+        post = create_post(request.form, login_session["user_id"])
         return redirect(url_for("post_detail", post_id=post.id))
 
 
@@ -120,7 +239,7 @@ def new_post():
 @app.route("/catalog/<catalog>/items", methods=["GET"])
 def catalog_posts(catalog):
     try:
-        user_id = login_session["userid"]
+        user_id = login_session["user_id"]
     except KeyError:
         user_id = None
 
@@ -134,7 +253,7 @@ def catalog_posts(catalog):
 @app.route("/catalog/<int:post_id>", methods=["GET"])
 def post_detail(post_id):
     try:
-        user_id = login_session["userid"]
+        user_id = login_session["user_id"]
     except KeyError:
         user_id = None
 
@@ -146,7 +265,7 @@ def post_detail(post_id):
 @app.route("/catalog/<int:post_id>/edit", methods=["GET", "POST"])
 def edit_post(post_id):
     try:
-        user_id = login_session["userid"]
+        user_id = login_session["user_id"]
         try:
             post = session.query(Post).filter_by(id=post_id,
                                                  author=user_id).one()
@@ -172,7 +291,7 @@ def edit_post(post_id):
 @app.route("/catalog/<int:post_id>/delete", methods=["GET", "POST"])
 def delete_post(post_id):
     try:
-        user_id = login_session["userid"]
+        user_id = login_session["user_id"]
         try:
             post = session.query(Post).filter_by(id=post_id,
                                                  author=user_id).one()
@@ -208,7 +327,5 @@ def jsonfy_data():
 
 
 if __name__ == "__main__":
-    create_default_users()
-
     app.debug = True
     app.run(host="0.0.0.0", port=5000)
