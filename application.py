@@ -5,6 +5,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.orm.exc import NoResultFound
 from model import Base, Post, User
+from functools import wraps
 
 from oauth2client.client import flow_from_clientsecrets
 from oauth2client.client import FlowExchangeError
@@ -40,6 +41,10 @@ session = DBSession()
 
 
 def createUser(userinfo):
+    """
+    Create user
+    """
+
     newUser = User(name=userinfo['name'], email=userinfo['email'])
     session.add(newUser)
     session.commit()
@@ -48,29 +53,47 @@ def createUser(userinfo):
 
 
 def find_user_email(email):
+    """
+    Find user by email
+    """
+
     try:
         return session.query(User).filter_by(email=email).one().id
     except NoResultFound:
         return False
 
 
-def create_post(post, user_id):
-    new_post = Post(title=post["title"], body=post["body"],
-                    catalog=post["catalog"], author=user_id)
-    session.add(new_post)
-    session.commit()
-    return session.query(Post).order_by(Post.create_at.desc()).first()
-
-
 def json_response(text, code):
+    """
+    Make json response
+    """
+
     response = make_response(json.dumps(text), code)
     response.headers["Content-Type"] = "application/json"
     return response
 
 
+def requied_login(func):
+    """
+    Check for user login
+    """
+
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        try:
+            login_session["user_id"]
+            return func(*args, **kwargs)
+        except KeyError:
+            return render_template("login_required.html")
+    return wrapper
+
+
 @app.route("/", methods=["GET"])
 def index():
-    # login_session.clear()
+    """
+    Index page
+    """
+
     try:
         user_id = login_session["user_id"]
     except KeyError:
@@ -84,6 +107,10 @@ def index():
 
 @app.route("/login", methods=["GET"])
 def login():
+    """
+    Login page
+    """
+
     state = "".join(random.choice(string.ascii_uppercase + string.digits)
                     for i in range(32))
     login_session["state"] = state
@@ -91,7 +118,12 @@ def login():
 
 
 @app.route("/logout", methods=["GET"])
+@requied_login
 def logout():
+    """
+    Logout page
+    """
+
     if login_session["login_as"] == "google":
         gdisconnect()
     else:
@@ -103,6 +135,11 @@ def logout():
 
 @app.route("/gconnect", methods=["POST"])
 def gconnect():
+    """
+    Google account login
+    Ajax used
+    """
+
     if request.args.get("state") != login_session["state"]:
         return json_response("Invalid state parameter.", 401)
     del login_session["state"]
@@ -164,6 +201,10 @@ def gconnect():
 
 
 def gdisconnect():
+    """
+    Deactivate Google account access token
+    """
+
     access_token = login_session.get("access_token")
     if access_token is None:
         return False
@@ -179,6 +220,11 @@ def gdisconnect():
 
 @app.route("/fbconnect", methods=["POST"])
 def fbconnect():
+    """
+    Facebook account login
+    For Ajax
+    """
+
     if request.args.get("state") != login_session["state"]:
         response = make_response(json.dumps("Invalid state parameter."), 401)
         response.headers["Content-Type"] = "application/json"
@@ -194,6 +240,8 @@ def fbconnect():
     r = requests.get("https://graph.facebook.com/v2.8/me?access_token=%s"
                      "&fields=name,id,email" % token)
     data = r.json()
+
+    # Store data in session
     login_session["login_as"] = "facebook"
     login_session["name"] = data["name"]
     login_session["email"] = data["email"]
@@ -209,6 +257,10 @@ def fbconnect():
 
 
 def fbdisconnect():
+    """
+    Deactivate Facebook account access token
+    """
+
     facebook_id = login_session["facebook_id"]
     access_token = login_session["access_token"]
     requests.get("https://graph.facebook.com/%s/permissions?access_token=%s" %
@@ -217,27 +269,39 @@ def fbdisconnect():
 
 
 @app.route("/new", methods=["GET", "POST"])
+@requied_login
 def new_post():
+    """
+    New post page
+    """
+
+    user_id = login_session["user_id"]
     if request.method == "GET":
-        try:
-            user_id = login_session["user_id"]
-            return render_template("new_post.html", user=user_id,
-                                   catalogs=CATALOGS)
-        except KeyError:
-            return render_template("login_required.html")
+        return render_template("new_post.html", user=user_id,
+                               catalogs=CATALOGS)
     else:
         if ((not request.form["title"]) or (not request.form["body"]) or
                 (not request.form["catalog"])):
             return render_template("new_post.html", catalogs=CATALOGS,
                                    error="missing")
 
-        post = create_post(request.form, login_session["user_id"])
+        new_post = Post(title=request.form["title"],
+                        body=request.form["body"],
+                        catalog=request.form["catalog"], author=user_id)
+        session.add(new_post)
+        session.commit()
+
+        post = session.query(Post).order_by(Post.create_at.desc()).first()
         return redirect(url_for("post_detail", post_id=post.id))
 
 
-@app.route("/catalog/<catalog>", methods=["GET"])
-@app.route("/catalog/<catalog>/items", methods=["GET"])
+@app.route("/catalog/<int:catalog>", methods=["GET"])
+@app.route("/catalog/<int:catalog>/items", methods=["GET"])
 def catalog_posts(catalog):
+    """
+    Items in certain catagory
+    """
+
     try:
         user_id = login_session["user_id"]
     except KeyError:
@@ -252,6 +316,10 @@ def catalog_posts(catalog):
 
 @app.route("/catalog/<int:post_id>", methods=["GET"])
 def post_detail(post_id):
+    """
+    Post detail page, include title & body
+    """
+
     try:
         user_id = login_session["user_id"]
     except KeyError:
@@ -263,54 +331,62 @@ def post_detail(post_id):
 
 
 @app.route("/catalog/<int:post_id>/edit", methods=["GET", "POST"])
+@requied_login
 def edit_post(post_id):
+    """
+    Post edit page
+    """
+
+    user_id = login_session["user_id"]
     try:
-        user_id = login_session["user_id"]
-        try:
-            post = session.query(Post).filter_by(id=post_id,
-                                                 author=user_id).one()
+        post = session.query(Post).filter_by(id=post_id,
+                                             author=user_id).one()
 
-            if request.method == "GET":
-                return render_template("post_edit.html", post=post,
-                                       catalogs=CATALOGS)
-            else:
-                post.title = request.form["title"]
-                post.body = request.form["body"]
-                post.catalog = int(request.form["catalog"])
+        if request.method == "GET":
+            return render_template("post_edit.html", post=post,
+                                   catalogs=CATALOGS)
+        else:
+            post.title = request.form["title"]
+            post.body = request.form["body"]
+            post.catalog = int(request.form["catalog"])
 
-                session.add(post)
-                session.commit()
-                # flash
-                return redirect(url_for("post_detail", post_id=post_id))
-        except NoResultFound:
-            return "Not this post author"
-    except KeyError:
-        return render_template("login_required.html")
+            session.add(post)
+            session.commit()
+            # flash
+            return redirect(url_for("post_detail", post_id=post_id))
+    except NoResultFound:
+        return "Not this post author"
 
 
 @app.route("/catalog/<int:post_id>/delete", methods=["GET", "POST"])
+@requied_login
 def delete_post(post_id):
+    """
+    Post delete page
+    """
+
+    user_id = login_session["user_id"]
     try:
-        user_id = login_session["user_id"]
-        try:
-            post = session.query(Post).filter_by(id=post_id,
-                                                 author=user_id).one()
+        post = session.query(Post).filter_by(id=post_id,
+                                             author=user_id).one()
 
-            if request.method == "GET":
-                return render_template("post_delete.html", post=post)
-            else:
-                session.delete(post)
-                session.commit()
-                # flash
-                return redirect("/")
-        except NoResultFound:
-            return "Not this post author"
-    except KeyError:
-        return render_template("login_required.html")
+        if request.method == "GET":
+            return render_template("post_delete.html", post=post)
+        else:
+            session.delete(post)
+            session.commit()
+            # flash
+            return redirect("/")
+    except NoResultFound:
+        return "Not this post author"
 
 
-@app.route("/catalog.json")
-def jsonfy_data():
+@app.route("/rest/catalog")
+def rest_all_data():
+    """
+    Get all catalogs & posts json
+    """
+
     catagories = []
 
     for catalog in CATALOGS:
@@ -324,6 +400,30 @@ def jsonfy_data():
         catagories.append(catagory)
 
     return jsonify(catagories=catagories)
+
+
+@app.route("/rest/catalog/<int:catalog>")
+def rest_catalog_data(catalog):
+    """
+    Get single catalog posts json
+    """
+
+    posts = [i.jsonlize for i in session.query(Post).order_by(
+             Post.create_at.desc()).filter_by(catalog=catalog).all()]
+    return jsonify(name=CATALOGS[catalog], posts=posts)
+
+
+@app.route("/rest/catalog/item/<int:post_id>")
+def rest_single_post(post_id):
+    """
+    Get single post json
+    """
+
+    try:
+        post = session.query(Post).filter_by(id=post_id).one()
+        return jsonify(post.jsonlize)
+    except NoResultFound:
+        return json_response("Post id not exist", 400)
 
 
 if __name__ == "__main__":
